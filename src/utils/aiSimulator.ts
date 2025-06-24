@@ -1,5 +1,6 @@
 import { InterviewConfig, Question, AnalyticsData, InterviewResponse } from '../types';
 import { APIService } from '../services/apiService';
+import { browserTTS } from './speechSynthesis';
 
 export class AIInterviewSimulator {
   private config: InterviewConfig;
@@ -10,8 +11,11 @@ export class AIInterviewSimulator {
   private isUsingLLM: boolean;
   private nextQuestionCache: string | null = null;
   private isInterviewEnded: boolean = false;
+  private enableTTS: boolean = false;
+  private onTTSStart?: () => void;
+  private onTTSEnd?: () => void;
 
-  constructor(config: InterviewConfig) {
+  constructor(config: InterviewConfig, enableTTS: boolean = false) {
     this.config = config;
     this.currentQuestionIndex = 0;
     this.startTime = Date.now();
@@ -20,6 +24,61 @@ export class AIInterviewSimulator {
     this.isUsingLLM = true;
     this.nextQuestionCache = null;
     this.isInterviewEnded = false;
+    this.enableTTS = enableTTS;
+  }
+
+  /**
+   * Set TTS event handlers
+   */
+  setTTSHandlers(onStart?: () => void, onEnd?: () => void): void {
+    this.onTTSStart = onStart;
+    this.onTTSEnd = onEnd;
+  }
+
+  /**
+   * Enable or disable TTS
+   */
+  setTTSEnabled(enabled: boolean): void {
+    this.enableTTS = enabled;
+    if (!enabled) {
+      browserTTS.stop();
+    }
+  }
+
+  /**
+   * Speak a question using browser TTS
+   */
+  private async speakQuestion(question: string): Promise<void> {
+    if (!this.enableTTS || !browserTTS.isSupported()) {
+      return;
+    }
+
+    try {
+      console.log('[AISimulator] Speaking question with browser TTS');
+      
+      await browserTTS.speak(
+        question,
+        {
+          rate: 0.9,
+          pitch: 1.0,
+          volume: 1.0,
+          lang: 'en-US'
+        },
+        () => {
+          console.log('[AISimulator] TTS started');
+          this.onTTSStart?.();
+        },
+        () => {
+          console.log('[AISimulator] TTS ended');
+          this.onTTSEnd?.();
+        },
+        (error) => {
+          console.error('[AISimulator] TTS error:', error);
+        }
+      );
+    } catch (error) {
+      console.error('[AISimulator] Error speaking question:', error);
+    }
   }
 
   async getNextQuestion(): Promise<string | null> {
@@ -49,45 +108,68 @@ export class AIInterviewSimulator {
         return null;
       }
 
+      let question: string | null = null;
+
       // Use cached question if available
       if (this.nextQuestionCache) {
         console.log('✅ Using cached next question');
-        const cachedQuestion = this.nextQuestionCache;
+        question = this.nextQuestionCache;
         this.nextQuestionCache = null;
-        this.generatedQuestions.push(cachedQuestion);
-        return cachedQuestion;
-      }
-
-      if (this.isUsingLLM) {
+        this.generatedQuestions.push(question);
+      } else if (this.isUsingLLM) {
         console.log('🤖 Requesting question from agentic framework...');
         const startTime = Date.now();
         
-        const question = await APIService.generateQuestion({
-          config: this.config,
-          previousQuestions: this.generatedQuestions,
-          previousResponses: this.responses,
-          questionNumber: this.currentQuestionIndex + 1
-        });
+        try {
+          question = await APIService.generateQuestion({
+            config: this.config,
+            previousQuestions: this.generatedQuestions,
+            previousResponses: this.responses,
+            questionNumber: this.currentQuestionIndex + 1
+          });
 
-        const duration = Date.now() - startTime;
-        console.log(`✅ Agentic question received in ${duration}ms`);
+          const duration = Date.now() - startTime;
+          console.log(`✅ Agentic question received in ${duration}ms`);
 
-        this.generatedQuestions.push(question);
-        
-        // Pre-generate next question in background if not the last question
-        this.preGenerateNextQuestion();
-        
-        return question;
+          this.generatedQuestions.push(question);
+          
+          // Pre-generate next question in background if not the last question
+          this.preGenerateNextQuestion();
+        } catch (error) {
+          console.error('❌ Error getting question from agentic framework:', error);
+          console.log('🔄 Falling back to predefined questions with TTS');
+          this.isUsingLLM = false;
+          question = this.getFallbackQuestion();
+        }
       } else {
         // Fallback to predefined questions
-        return this.getFallbackQuestion();
+        question = this.getFallbackQuestion();
       }
+
+      // Speak the question if TTS is enabled and we have a question
+      if (question && this.enableTTS) {
+        // Don't await this - let it run in parallel
+        this.speakQuestion(question).catch(error => {
+          console.error('Error speaking question:', error);
+        });
+      }
+      
+      return question;
     } catch (error) {
-      console.error('❌ Error getting next question from agentic framework:', error);
-      console.log('🔄 Falling back to predefined questions');
+      console.error('❌ Error in getNextQuestion:', error);
+      console.log('🔄 Falling back to predefined questions with TTS');
       // Fallback to predefined questions if LLM fails
       this.isUsingLLM = false;
-      return this.getFallbackQuestion();
+      const fallbackQuestion = this.getFallbackQuestion();
+      
+      // Speak fallback question if TTS is enabled
+      if (fallbackQuestion && this.enableTTS) {
+        this.speakQuestion(fallbackQuestion).catch(error => {
+          console.error('Error speaking fallback question:', error);
+        });
+      }
+      
+      return fallbackQuestion;
     }
   }
 
@@ -274,8 +356,9 @@ export class AIInterviewSimulator {
       return null;
     }
 
-    console.log(`📝 Using fallback question ${this.currentQuestionIndex + 1}`);
-    return questions[this.currentQuestionIndex];
+    const question = questions[this.currentQuestionIndex];
+    console.log(`📝 Using fallback question ${this.currentQuestionIndex + 1} with TTS support`);
+    return question;
   }
 
   async submitResponse(response: string): Promise<void> {
@@ -307,15 +390,38 @@ export class AIInterviewSimulator {
       const currentQuestion = this.generatedQuestions[this.currentQuestionIndex - 1];
       if (!currentQuestion) return null;
 
-      return await APIService.generateFollowUp({
+      const followUp = await APIService.generateFollowUp({
         question: currentQuestion,
         response: previousResponse,
         config: this.config
       });
+
+      // Speak follow-up if TTS is enabled
+      if (followUp && this.enableTTS) {
+        this.speakQuestion(followUp).catch(error => {
+          console.error('Error speaking follow-up question:', error);
+        });
+      }
+
+      return followUp;
     } catch (error) {
       console.error('Error generating follow-up:', error);
       return null;
     }
+  }
+
+  /**
+   * Stop any ongoing TTS
+   */
+  stopTTS(): void {
+    browserTTS.stop();
+  }
+
+  /**
+   * Get TTS status
+   */
+  getTTSStatus() {
+    return browserTTS.getStatus();
   }
 
   isInterviewComplete(): boolean {
@@ -337,6 +443,7 @@ export class AIInterviewSimulator {
     console.log('🛑 Interview ended early by user');
     this.isInterviewEnded = true;
     this.nextQuestionCache = null; // Clear any cached questions
+    this.stopTTS(); // Stop any ongoing speech
   }
 
   /**
@@ -416,7 +523,9 @@ export class AIInterviewSimulator {
         totalResponses: this.responses.length,
         wasEndedEarly: this.wasEndedEarly(),
         completionRate: (this.responses.length / this.calculateMaxQuestions()) * 100,
-        maxQuestionsCalculated: this.calculateMaxQuestions()
+        maxQuestionsCalculated: this.calculateMaxQuestions(),
+        ttsEnabled: this.enableTTS,
+        ttsSupported: browserTTS.isSupported()
       }
     };
   }
@@ -565,7 +674,9 @@ export class AIInterviewSimulator {
       maxQuestions: this.calculateMaxQuestions(),
       isInterviewEnded: this.isInterviewEnded,
       wasEndedEarly: this.wasEndedEarly(),
-      completionRate: (this.responses.length / this.calculateMaxQuestions()) * 100
+      completionRate: (this.responses.length / this.calculateMaxQuestions()) * 100,
+      ttsEnabled: this.enableTTS,
+      ttsStatus: this.getTTSStatus()
     };
   }
 }

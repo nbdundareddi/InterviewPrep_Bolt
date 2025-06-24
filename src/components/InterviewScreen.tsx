@@ -19,7 +19,9 @@ import {
   Monitor,
   Brain,
   Zap,
-  StopCircle
+  StopCircle,
+  Speaker,
+  SpeakerX
 } from 'lucide-react';
 import { InterviewConfig } from '../types';
 import { AIInterviewSimulator } from '../utils/aiSimulator';
@@ -27,6 +29,7 @@ import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { APIService } from '../services/apiService';
 import { VoiceInterviewService } from '../services/voiceInterviewService';
 import { VoiceInterviewScreen } from './VoiceInterviewScreen';
+import { browserTTS } from '../utils/speechSynthesis';
 
 interface InterviewScreenProps {
   config: InterviewConfig;
@@ -186,7 +189,7 @@ export const InterviewScreen: React.FC<InterviewScreenProps> = ({
                   </h3>
                   
                   <p className="text-gray-600 mb-6">
-                    Traditional text-based interview with AI-generated questions. 
+                    Traditional text-based interview with AI-generated questions and optional browser text-to-speech. 
                     Type your responses and get detailed feedback.
                   </p>
 
@@ -197,7 +200,7 @@ export const InterviewScreen: React.FC<InterviewScreenProps> = ({
                     </div>
                     <div className="flex items-center text-sm text-gray-700">
                       <div className="w-2 h-2 bg-blue-500 rounded-full mr-3"></div>
-                      Instant response processing
+                      Browser text-to-speech support
                     </div>
                     <div className="flex items-center text-sm text-gray-700">
                       <div className="w-2 h-2 bg-blue-500 rounded-full mr-3"></div>
@@ -236,13 +239,13 @@ export const InterviewScreen: React.FC<InterviewScreenProps> = ({
   );
 };
 
-// Text Interview Component (optimized for performance)
+// Text Interview Component (optimized for performance with TTS support)
 const TextInterviewScreen: React.FC<InterviewScreenProps> = ({
   config,
   onEndInterview,
   onBackToConfig
 }) => {
-  const [simulator] = useState(() => new AIInterviewSimulator(config));
+  const [simulator] = useState(() => new AIInterviewSimulator(config, false)); // TTS disabled by default
   const [isInterviewActive, setIsInterviewActive] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState<string>('');
   const [textResponse, setTextResponse] = useState('');
@@ -257,6 +260,9 @@ const TextInterviewScreen: React.FC<InterviewScreenProps> = ({
   const [isLoadingQuestion, setIsLoadingQuestion] = useState(false);
   const [isSubmittingResponse, setIsSubmittingResponse] = useState(false);
   const [showEndConfirmation, setShowEndConfirmation] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [ttsStatus, setTtsStatus] = useState(browserTTS.getStatus());
   
   const {
     isListening,
@@ -269,6 +275,29 @@ const TextInterviewScreen: React.FC<InterviewScreenProps> = ({
 
   const responseRef = useRef<HTMLTextAreaElement>(null);
   const notesRef = useRef<HTMLTextAreaElement>(null);
+
+  // Set up TTS handlers
+  useEffect(() => {
+    simulator.setTTSHandlers(
+      () => {
+        setIsSpeaking(true);
+        setTtsStatus(browserTTS.getStatus());
+      },
+      () => {
+        setIsSpeaking(false);
+        setTtsStatus(browserTTS.getStatus());
+      }
+    );
+  }, [simulator]);
+
+  // Update TTS status periodically
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTtsStatus(browserTTS.getStatus());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Check backend connection on mount
   useEffect(() => {
@@ -315,6 +344,17 @@ const TextInterviewScreen: React.FC<InterviewScreenProps> = ({
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
+  const toggleTTS = () => {
+    const newTtsEnabled = !ttsEnabled;
+    setTtsEnabled(newTtsEnabled);
+    simulator.setTTSEnabled(newTtsEnabled);
+    
+    if (!newTtsEnabled) {
+      simulator.stopTTS();
+      setIsSpeaking(false);
+    }
+  };
+
   const startInterview = () => {
     setIsInterviewActive(true);
     setStartTime(Date.now());
@@ -324,6 +364,8 @@ const TextInterviewScreen: React.FC<InterviewScreenProps> = ({
   const pauseInterview = () => {
     setIsInterviewActive(false);
     stopListening();
+    simulator.stopTTS();
+    setIsSpeaking(false);
   };
 
   const resumeInterview = () => {
@@ -333,6 +375,8 @@ const TextInterviewScreen: React.FC<InterviewScreenProps> = ({
   const endInterview = () => {
     setIsInterviewActive(false);
     stopListening();
+    simulator.stopTTS();
+    setIsSpeaking(false);
     simulator.endInterviewEarly(); // Mark as ended early
     onEndInterview(simulator);
   };
@@ -404,6 +448,8 @@ const TextInterviewScreen: React.FC<InterviewScreenProps> = ({
 
     setIsSubmittingResponse(true);
     stopListening();
+    simulator.stopTTS();
+    setIsSpeaking(false);
     
     try {
       console.log('📝 Submitting response...');
@@ -522,7 +568,7 @@ const TextInterviewScreen: React.FC<InterviewScreenProps> = ({
                   <div className="text-blue-800 text-sm">
                     <p className="font-medium mb-1">Running in Offline Mode</p>
                     <p className="mb-2">
-                      The AI backend is not connected. You can still practice with pre-defined questions, 
+                      The AI backend is not connected. You can still practice with pre-defined questions with browser text-to-speech, 
                       or start the backend server for AI-powered interviews.
                     </p>
                     <p className="text-xs text-blue-600">
@@ -535,6 +581,28 @@ const TextInterviewScreen: React.FC<InterviewScreenProps> = ({
                   >
                     ×
                   </button>
+                </div>
+              </div>
+            )}
+
+            {/* TTS Status Alert */}
+            {ttsEnabled && (
+              <div className="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                <div className="flex items-center">
+                  <Speaker className="w-5 h-5 text-purple-600 mr-3" />
+                  <div className="text-purple-800 text-sm">
+                    <p className="font-medium">Browser Text-to-Speech Enabled</p>
+                    <p className="text-xs text-purple-600 mt-1">
+                      Questions will be spoken aloud using {ttsStatus.preferredVoice || 'default voice'} 
+                      ({ttsStatus.voicesCount} voices available)
+                    </p>
+                  </div>
+                  {isSpeaking && (
+                    <div className="ml-auto flex items-center text-purple-600">
+                      <Volume2 className="w-4 h-4 mr-1 animate-pulse" />
+                      <span className="text-sm">Speaking...</span>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -621,6 +689,17 @@ const TextInterviewScreen: React.FC<InterviewScreenProps> = ({
 
               <div className="flex items-center space-x-3">
                 <button
+                  onClick={toggleTTS}
+                  disabled={!ttsStatus.supported}
+                  className={`p-3 rounded-xl transition-all ${
+                    ttsEnabled ? 'bg-purple-100 text-purple-600' : 'bg-gray-100 text-gray-600'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  title={ttsStatus.supported ? 'Toggle Text-to-Speech' : 'Text-to-Speech not supported'}
+                >
+                  {ttsEnabled ? <Speaker className="w-5 h-5" /> : <SpeakerX className="w-5 h-5" />}
+                </button>
+
+                <button
                   onClick={() => setIsMuted(!isMuted)}
                   className={`p-3 rounded-xl transition-all ${
                     isMuted ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-600'
@@ -652,6 +731,9 @@ const TextInterviewScreen: React.FC<InterviewScreenProps> = ({
                     <h3 className="text-lg font-semibold text-gray-900">AI Interviewer</h3>
                     <p className="text-sm text-gray-600">
                       {isConnected ? (simulator.isUsingAgentic() ? 'Agentic AI-Powered Assistant' : 'LLM-Powered Assistant') : 'Practice Interview Assistant'}
+                      {ttsEnabled && ttsStatus.supported && (
+                        <span className="ml-2 text-purple-600">• TTS Enabled</span>
+                      )}
                     </p>
                   </div>
                 </div>
@@ -676,6 +758,12 @@ const TextInterviewScreen: React.FC<InterviewScreenProps> = ({
                         <div className="mt-4 flex items-center text-sm text-blue-600">
                           <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse mr-2"></div>
                           Waiting for your response...
+                          {isSpeaking && (
+                            <span className="ml-2 text-purple-600 flex items-center">
+                              <Volume2 className="w-4 h-4 mr-1" />
+                              Speaking question...
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>
@@ -767,6 +855,42 @@ const TextInterviewScreen: React.FC<InterviewScreenProps> = ({
               
               <div className="mt-4 text-xs text-gray-500">
                 Your notes will be saved and available in the analytics section.
+              </div>
+
+              {/* TTS Status */}
+              <div className="mt-6 p-4 bg-purple-50 rounded-xl">
+                <h4 className="font-medium text-purple-900 mb-2">Text-to-Speech Status</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-purple-700">Supported:</span>
+                    <span className={ttsStatus.supported ? 'text-green-600' : 'text-red-600'}>
+                      {ttsStatus.supported ? 'Yes' : 'No'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-purple-700">Enabled:</span>
+                    <span className={ttsEnabled ? 'text-green-600' : 'text-gray-600'}>
+                      {ttsEnabled ? 'Yes' : 'No'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-purple-700">Speaking:</span>
+                    <span className={ttsStatus.speaking ? 'text-blue-600' : 'text-gray-600'}>
+                      {ttsStatus.speaking ? 'Yes' : 'No'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-purple-700">Voices:</span>
+                    <span className="text-purple-900">{ttsStatus.voicesCount}</span>
+                  </div>
+                  {ttsStatus.preferredVoice && (
+                    <div className="mt-2 pt-2 border-t border-purple-200">
+                      <div className="text-xs text-purple-600">
+                        <strong>Voice:</strong> {ttsStatus.preferredVoice}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Performance Stats */}
