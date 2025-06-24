@@ -228,8 +228,6 @@ export class AIInterviewSimulator {
     
     const finalCount = Math.max(minQuestions, Math.min(maxQuestions, calculatedQuestions));
     
-    console.log(`📊 Question calculation: Duration=${this.config.duration}min, TimePerQ=${timePerQuestion}min, Calculated=${calculatedQuestions}, Final=${finalCount}`);
-    
     return finalCount;
   }
 
