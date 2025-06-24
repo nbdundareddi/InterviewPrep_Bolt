@@ -1,28 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Mic, 
-  MicOff, 
-  Volume2, 
-  VolumeX, 
-  Play, 
-  Pause, 
-  Square, 
-  MessageCircle,
-  Clock,
-  FileText,
-  Send,
-  Loader,
-  Wifi,
-  WifiOff,
-  AlertCircle,
-  Phone,
-  Monitor,
-  Brain,
-  Zap,
-  StopCircle,
-  Speaker,
-  SpeakerX
-} from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Play, Pause, Square, MessageCircle, Clock, FileText, Send, Loader, Wifi, WifiOff, AlertCircle, Phone, Monitor, Brain, Zap, StopCircle, Speaker, Speaker as SpeakerX } from 'lucide-react';
 import { InterviewConfig } from '../types';
 import { AIInterviewSimulator } from '../utils/aiSimulator';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
