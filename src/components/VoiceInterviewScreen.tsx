@@ -234,7 +234,7 @@ export const VoiceInterviewScreen: React.FC<VoiceInterviewScreenProps> = ({
           audioElement.onended = () => {
             console.log(`🎵 Audio ended for track: ${trackId}`);
             setIsAISpeaking(false);
-            // Resume listening after AI finishes speaking
+            // Resume listening after AI finishes speaking - this is the correct place to start listening
             setTimeout(() => {
               if (isInterviewActive && !isListening) {
                 startListening();
@@ -354,13 +354,9 @@ export const VoiceInterviewScreen: React.FC<VoiceInterviewScreenProps> = ({
           setStartTime(Date.now());
           setIsThinking(false);
           
-          // Start listening after connection
-          setTimeout(() => {
-            if (speechSupported && !isListening) {
-              startListening();
-              setUserSpeaking(true);
-            }
-          }, 1000);
+          // REMOVED: The premature startListening call that was causing the issue
+          // The listening will now be triggered properly when the AI finishes speaking
+          // via the audioElement.onended event handler above
           
           console.log('[VoiceInterview] ✅ Voice interview started successfully');
         } catch (connectError) {
@@ -371,7 +367,7 @@ export const VoiceInterviewScreen: React.FC<VoiceInterviewScreenProps> = ({
         }
       }, 200);
     }
-  }, [voiceSession, livekitReady, connectLiveKit, speechSupported, startListening, isListening]);
+  }, [voiceSession, livekitReady, connectLiveKit, speechSupported]);
 
   // Handle transcript changes
   useEffect(() => {
