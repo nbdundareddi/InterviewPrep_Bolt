@@ -70,6 +70,15 @@ export const VoiceInterviewScreen: React.FC<VoiceInterviewScreenProps> = ({
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const speechSynthesisRef = useRef<SpeechSynthesis | null>(null);
   
+  // Refs for stable event handlers
+  const isInterviewActiveRef = useRef(isInterviewActive);
+  const isListeningRef = useRef(false);
+  const startListeningRef = useRef<(() => void) | null>(null);
+  const stopListeningRef = useRef<(() => void) | null>(null);
+  const setUserSpeakingRef = useRef(setUserSpeaking);
+  const setIsAISpeakingRef = useRef(setIsAISpeaking);
+  const setShowAutoplayPromptRef = useRef(setShowAutoplayPrompt);
+  
   const {
     isListening,
     transcript,
@@ -152,6 +161,35 @@ export const VoiceInterviewScreen: React.FC<VoiceInterviewScreenProps> = ({
 
   const notesRef = useRef<HTMLTextAreaElement>(null);
 
+  // Update refs when state/callbacks change
+  useEffect(() => {
+    isInterviewActiveRef.current = isInterviewActive;
+  }, [isInterviewActive]);
+
+  useEffect(() => {
+    isListeningRef.current = isListening;
+  }, [isListening]);
+
+  useEffect(() => {
+    startListeningRef.current = startListening;
+  }, [startListening]);
+
+  useEffect(() => {
+    stopListeningRef.current = stopListening;
+  }, [stopListening]);
+
+  useEffect(() => {
+    setUserSpeakingRef.current = setUserSpeaking;
+  }, []);
+
+  useEffect(() => {
+    setIsAISpeakingRef.current = setIsAISpeaking;
+  }, []);
+
+  useEffect(() => {
+    setShowAutoplayPromptRef.current = setShowAutoplayPrompt;
+  }, []);
+
   // Initialize audio context and speech synthesis
   useEffect(() => {
     const initializeAudio = async () => {
@@ -201,7 +239,7 @@ export const VoiceInterviewScreen: React.FC<VoiceInterviewScreenProps> = ({
     return () => clearInterval(interval);
   }, [isInterviewActive, startTime]);
 
-  // Enhanced remote audio track handling with proper audio playback and autoplay detection
+  // Enhanced remote audio track handling with stable dependencies
   useEffect(() => {
     if (remoteAudioTracks.length > 0) {
       console.log(`🎵 Processing ${remoteAudioTracks.length} remote audio tracks`);
@@ -219,38 +257,38 @@ export const VoiceInterviewScreen: React.FC<VoiceInterviewScreenProps> = ({
           audioElement.playsInline = true;
           audioElement.volume = 1.0;
           
-          // Set up event listeners
+          // Set up event listeners using refs for stable dependencies
           audioElement.onplay = () => {
             console.log(`🎵 Audio started playing for track: ${trackId}`);
-            setIsAISpeaking(true);
-            setUserSpeaking(false);
-            setShowAutoplayPrompt(false);
+            setIsAISpeakingRef.current(true);
+            setUserSpeakingRef.current(false);
+            setShowAutoplayPromptRef.current(false);
             // Stop user listening when AI starts speaking
-            if (isListening) {
-              stopListening();
+            if (isListeningRef.current && stopListeningRef.current) {
+              stopListeningRef.current();
             }
           };
           
           audioElement.onended = () => {
             console.log(`🎵 Audio ended for track: ${trackId}`);
-            setIsAISpeaking(false);
-            // Resume listening after AI finishes speaking - this is the correct place to start listening
+            setIsAISpeakingRef.current(false);
+            // Resume listening after AI finishes speaking
             setTimeout(() => {
-              if (isInterviewActive && !isListening) {
-                startListening();
-                setUserSpeaking(false);
+              if (isInterviewActiveRef.current && !isListeningRef.current && startListeningRef.current) {
+                startListeningRef.current();
+                setUserSpeakingRef.current(false);
               }
             }, 500);
           };
           
           audioElement.onpause = () => {
             console.log(`🎵 Audio paused for track: ${trackId}`);
-            setIsAISpeaking(false);
+            setIsAISpeakingRef.current(false);
           };
           
           audioElement.onerror = (error) => {
             console.error(`❌ Audio error for track ${trackId}:`, error);
-            setIsAISpeaking(false);
+            setIsAISpeakingRef.current(false);
           };
           
           audioElement.onloadstart = () => {
@@ -279,12 +317,12 @@ export const VoiceInterviewScreen: React.FC<VoiceInterviewScreenProps> = ({
               playPromise
                 .then(() => {
                   console.log(`✅ Audio autoplay successful for track: ${trackId}`);
-                  setShowAutoplayPrompt(false);
+                  setShowAutoplayPromptRef.current(false);
                 })
                 .catch(error => {
                   console.warn(`⚠️ Autoplay prevented for track ${trackId}:`, error);
                   if (error.name === 'NotAllowedError') {
-                    setShowAutoplayPrompt(true);
+                    setShowAutoplayPromptRef.current(true);
                   }
                 });
             }
@@ -307,7 +345,7 @@ export const VoiceInterviewScreen: React.FC<VoiceInterviewScreenProps> = ({
       }
     });
 
-  }, [remoteAudioTracks, isListening, stopListening, startListening, isInterviewActive]);
+  }, [remoteAudioTracks]); // Only depend on remoteAudioTracks
 
   // Audio level monitoring
   useEffect(() => {
@@ -367,7 +405,7 @@ export const VoiceInterviewScreen: React.FC<VoiceInterviewScreenProps> = ({
         }
       }, 200);
     }
-  }, [voiceSession, livekitReady, connectLiveKit, speechSupported]);
+  }, [voiceSession, livekitReady, connectLiveKit]);
 
   // Handle transcript changes
   useEffect(() => {
