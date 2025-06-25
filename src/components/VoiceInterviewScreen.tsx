@@ -1038,7 +1038,7 @@ export const VoiceInterviewScreen: React.FC<VoiceInterviewScreenProps> = ({
                       {isListening && (
                         <div className="flex items-center text-sm text-green-600">
                           <div className="w-2 h-2 bg-green-600 rounded-full animate-pulse mr-2"></div>
-                          AI Managed
+                          Recording
                         </div>
                       )}
                     </div>
@@ -1081,7 +1081,9 @@ export const VoiceInterviewScreen: React.FC<VoiceInterviewScreenProps> = ({
                       <div className="text-sm text-gray-600">
                         {aiAgentStatus?.conversational 
                           ? `${aiAgentStatus.provider?.toUpperCase() || 'AI'} is managing the conversation flow automatically`
-                          : isListening ? 'Click to stop recording' : 'Click to start recording'
+                          : isListening 
+                            ? 'Click microphone when done speaking to signal your turn is complete' 
+                            : 'Click microphone to start speaking your response'
                         }
                       </div>
                     </div>
@@ -1090,6 +1092,25 @@ export const VoiceInterviewScreen: React.FC<VoiceInterviewScreenProps> = ({
                       Powered by {aiAgentStatus?.provider?.toUpperCase() || 'AI'} Agent
                     </div>
                   </div>
+
+                  {/* Turn-taking Instructions */}
+                  {isInterviewActive && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <div className="flex items-start">
+                        <Brain className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
+                        <div className="text-blue-800 text-sm">
+                          <p className="font-medium mb-1">How to Respond:</p>
+                          <ol className="list-decimal list-inside space-y-1 text-xs">
+                            <li>Wait for the AI to finish speaking (you'll see "AI Speaking" indicator)</li>
+                            <li>The microphone will automatically start listening when AI finishes</li>
+                            <li>Speak your response clearly</li>
+                            <li>Click the microphone button when you're done speaking to signal your turn is complete</li>
+                            <li>The AI will then process your response and ask the next question</li>
+                          </ol>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
