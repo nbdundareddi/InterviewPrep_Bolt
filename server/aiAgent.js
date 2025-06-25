@@ -135,10 +135,54 @@ export class MultiProviderAIInterviewAgent {
     // Set up audio processing based on provider
     await this.setupAudioProcessing(ctx, sessionData);
     
+    // Set up data message handling for user turn signals
+    this.setupDataMessageHandling(ctx, sessionData);
+    
     // Begin interview flow
     await this.startInterviewFlow(ctx, sessionData);
     
     console.log(`✅ Interview session started for room: ${room.name} using ${this.provider.toUpperCase()}`);
+  }
+
+  /**
+   * Set up data message handling for user turn signals
+   */
+  setupDataMessageHandling(ctx, sessionData) {
+    const { room } = ctx;
+    
+    room.on('dataReceived', async (payload, participant) => {
+      try {
+        const data = JSON.parse(new TextDecoder().decode(payload));
+        console.log(`📨 Data received from ${participant?.identity}:`, data);
+        
+        // Handle user turn ended signal
+        if (data.type === 'user_turn_ended') {
+          console.log('🎤 User turn ended signal received');
+          
+          // Check if we have a final transcript to process
+          if (sessionData.lastFinalTranscript && sessionData.lastFinalTranscript.trim().length > 0) {
+            console.log(`📝 Processing final transcript: "${sessionData.lastFinalTranscript}"`);
+            
+            // Process the user's complete response
+            await this.processUserResponse(sessionData.lastFinalTranscript, sessionData);
+            
+            // Clear the transcript to prevent re-processing
+            sessionData.lastFinalTranscript = '';
+          } else if (data.transcript && data.transcript.trim().length > 0) {
+            // Fallback: use transcript from the data message if no final transcript stored
+            console.log(`📝 Processing transcript from data message: "${data.transcript}"`);
+            await this.processUserResponse(data.transcript, sessionData);
+          } else {
+            console.warn('⚠️ User turn ended but no transcript available to process');
+          }
+          
+          // Temporarily stop listening until AI responds
+          sessionData.isListening = false;
+        }
+      } catch (error) {
+        console.error('❌ Error processing data message:', error);
+      }
+    });
   }
 
   /**
@@ -195,6 +239,7 @@ export class MultiProviderAIInterviewAgent {
         conversationHistory: [],
         isAISpeaking: false,
         isListening: false,
+        lastFinalTranscript: '', // Store the last complete transcript
         provider: this.provider
       };
 
@@ -373,7 +418,9 @@ export class MultiProviderAIInterviewAgent {
             const transcript = await this.processOpenAISTT(audioData);
             
             if (transcript && transcript.trim().length > 0) {
-              await this.processUserResponse(transcript, sessionData);
+              // Store the final transcript instead of processing immediately
+              sessionData.lastFinalTranscript = transcript.trim();
+              console.log(`🎤 OpenAI STT final transcript stored: "${transcript}"`);
             }
             
             audioBuffer = []; // Clear buffer
@@ -444,7 +491,9 @@ export class MultiProviderAIInterviewAgent {
       console.log(`🎤 Google Speech recognized: "${transcript}" (final: ${isFinal})`);
       
       if (isFinal && transcript.trim().length > 0) {
-        await this.processUserResponse(transcript, sessionData);
+        // Store the final transcript instead of processing immediately
+        sessionData.lastFinalTranscript = transcript.trim();
+        console.log(`🎤 Google STT final transcript stored: "${transcript}"`);
       }
     }
   }
@@ -473,7 +522,6 @@ export class MultiProviderAIInterviewAgent {
     });
     
     sessionData.status = 'ready_check';
-    sessionData.isListening = true;
     
     console.log(`🎙️ Interview flow started with ${this.provider.toUpperCase()}, waiting for participant response`);
   }
@@ -529,7 +577,7 @@ export class MultiProviderAIInterviewAgent {
         await new Promise(resolve => setTimeout(resolve, text.length * 50));
       }
       
-      // Resume listening after speaking
+      // Resume listening after speaking with a delay
       setTimeout(() => {
         sessionData.isAISpeaking = false;
         sessionData.isListening = true;

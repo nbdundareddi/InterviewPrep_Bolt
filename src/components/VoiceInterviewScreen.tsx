@@ -629,12 +629,43 @@ export const VoiceInterviewScreen: React.FC<VoiceInterviewScreenProps> = ({
 
   const toggleMicrophone = async () => {
     if (isListening) {
+      // User is stopping their turn - send end of turn signal to AI agent
+      console.log('[VoiceInterview] 🎤 User ending turn, sending signal to AI agent');
+      
       stopListening();
       setUserSpeaking(false);
+      
       if (livekitProps) {
         stopAudio();
       }
+      
+      // Send "end of turn" signal to AI agent via LiveKit data channel
+      if (sendDataMessage && transcript && transcript.trim().length > 0) {
+        console.log('[VoiceInterview] 📨 Sending user_turn_ended signal with transcript:', transcript.substring(0, 50) + '...');
+        
+        sendDataMessage({
+          type: 'user_turn_ended',
+          transcript: transcript.trim(),
+          timestamp: Date.now()
+        });
+        
+        // Add final user response to conversation history
+        setConversationHistory(prev => [...prev, {
+          speaker: 'user',
+          message: transcript.trim(),
+          timestamp: Date.now(),
+          type: 'response'
+        }]);
+        
+        // Clear the transcript for next turn
+        resetTranscript();
+      } else {
+        console.log('[VoiceInterview] ⚠️ No transcript to send or sendDataMessage not available');
+      }
     } else {
+      // User is starting their turn
+      console.log('[VoiceInterview] 🎤 User starting turn');
+      
       if (livekitProps) {
         await startAudio();
       }
